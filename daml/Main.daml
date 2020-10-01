@@ -1,0 +1,60 @@
+module Main where
+
+import Daml.Script
+import RealFac.CashAccount.CashAccount
+import RealFac.Project.Project
+import RealFac.Project.ProjectParties
+import RealFac.Project.Task
+
+setup = script do
+  serviceProvider <- allocatePartyWithHint "MrTrust" (PartyIdHint "MrTrust")
+  client <- partyWithCashAccount serviceProvider "CustomerAlice"
+  vendor <- partyWithCashAccount serviceProvider "BuilderBob"
+
+  -- add money for client
+  submit client do
+    createCmd PendingDeposit with
+      serviceProvider
+      owner = client
+      amount = 1000
+      ref = "ABCD"
+  submit serviceProvider do
+    exerciseByKeyCmd @PendingDeposit (client, "ABCD") CashArrived
+  
+  -- vendor creates a PendingProject
+  submit vendor do
+    createCmd PendingProject with
+      projectParties = ProjectParties with 
+        serviceProvider 
+        client 
+        vendor
+      ref = "111-house"
+      taskDescriptors = [
+        TaskDescriptor "foundation" "" [] 100,
+        TaskDescriptor "structure" "" [] 100,
+        TaskDescriptor "interior" "" [] 0,
+        TaskDescriptor "exterior" "" [] 0,
+        TaskDescriptor "key" "" [] 600]
+      alreadySigned = [vendor]
+
+  -- all parties sign
+  submit client do
+    exerciseByKeyCmd @PendingProject (vendor, "111-house") Sign with signer = client
+  submit serviceProvider do
+    exerciseByKeyCmd @PendingProject (vendor, "111-house") Sign with signer = serviceProvider
+
+  -- create project
+  submit client do
+    exerciseByKeyCmd @PendingProject (vendor, "111-house") Finalize
+  return ()
+
+
+partyWithCashAccount serviceProvider name = script do
+  party <- allocatePartyWithHint name (PartyIdHint name)
+  proposalCid <- submit party do
+    createCmd CashAccountOpenProposal with
+      serviceProvider
+      owner = party
+  submit serviceProvider do
+    exerciseCmd proposalCid OpenCashAccount
+  return party 

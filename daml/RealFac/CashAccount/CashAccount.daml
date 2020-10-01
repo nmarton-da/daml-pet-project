@@ -1,0 +1,119 @@
+module RealFac.CashAccount.CashAccount where
+
+template CashAccount
+  with
+    serviceProvider : Party
+    owner : Party
+    balance : Int  -- total balance
+    reserved : Int  -- from total balance, reserved amount cannot be used
+  where
+    signatory owner, serviceProvider
+    key (serviceProvider, owner) : (Party, Party)
+    maintainer key._1
+
+    controller serviceProvider can
+
+      Deposit
+        : ContractId CashAccount
+        with
+          amount : Int
+        do
+          assertMsg
+            "Deposit amount must be positive"
+            (amount > 0)
+          create this with
+            balance = balance + amount
+
+      WithdrawReserved
+        : ContractId CashAccount
+        with
+          amount : Int
+        do
+          assertMsg
+            "Amount must be positive"
+            (amount > 0)
+          assertMsg
+            "Reserved amount must be bigger or equal then withdraw amount"
+            (amount <= reserved)
+          create this with
+            balance = balance - amount
+            reserved = reserved - amount
+  
+      RevokeReservation
+        : ContractId CashAccount
+        with
+          amount : Int
+        do
+          assertMsg
+            "Amount must be positive"
+            (amount > 0)
+          assertMsg
+            "Reserved amount must be bigger or equal then revoked amount"
+            (amount <= reserved)
+          create this with
+            reserved = reserved - amount
+
+      Reserve
+        : ContractId CashAccount
+        with 
+          amount : Int
+        do
+          assertMsg
+            "Amount must be positive"
+            (amount > 0)
+          assertMsg
+            "Reserve amount must be smaller then available amount"
+            (balance - reserved - amount > 0)
+          create this with
+            reserved = reserved + amount
+
+    controller owner can
+
+      Withdraw
+        : ContractId CashAccount
+        with
+          amount : Int
+        do
+          assertMsg
+            "Amount must be positive"
+            (amount > 0)
+          assertMsg
+            "Available amount must be bigger or equal then withdraw amount"
+            (amount <= balance - reserved)
+          create this with
+            balance = balance - amount
+            
+template CashAccountOpenProposal
+  with
+    serviceProvider : Party
+    owner : Party
+  where
+    signatory owner
+
+    controller serviceProvider can
+      OpenCashAccount : ContractId CashAccount
+        do
+          create CashAccount with
+            serviceProvider
+      
+            owner
+            balance = 0
+            reserved = 0
+            
+template PendingDeposit
+  with
+    serviceProvider : Party
+    owner : Party
+    amount : Int
+    ref : Text
+  where
+    signatory owner
+    ensure amount > 0
+    key (owner, ref) : (Party, Text)
+    maintainer key._1
+
+    controller serviceProvider can
+      CashArrived : ContractId CashAccount
+        do
+          exerciseByKey @CashAccount (serviceProvider, owner) Deposit with 
+            amount

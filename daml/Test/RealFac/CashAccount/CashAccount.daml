@@ -1,0 +1,86 @@
+module Test.RealFac.CashAccount.CashAccount where
+
+import RealFac.CashAccount.CashAccount
+
+test_owner_cannot_create_cashaccount = scenario do
+  serviceProvider <- getParty "serviceProvider"
+  owner <- getParty "owner"
+  submitMustFail owner do
+    create CashAccount with
+      serviceProvider
+      owner
+      balance = 0
+      reserved = 0
+
+test_accountant_cannot_create_cashaccount = scenario do
+  serviceProvider <- getParty "serviceProvider"
+  owner <- getParty "owner"
+  submitMustFail serviceProvider do
+    create CashAccount with
+      serviceProvider
+      owner
+      balance = 0
+      reserved = 0
+
+test_owner_initiates_accountant_accepts_cash_account_creation = scenario do
+  (serviceProvider, owner) <- testBase
+  submit owner do
+    (_, cashAccount) <- fetchByKey @CashAccount (serviceProvider, owner)
+    assert (cashAccount.serviceProvider == serviceProvider)
+    assert (cashAccount.owner == owner)
+    assert (cashAccount.balance == 0)
+    assert (cashAccount.reserved == 0)
+
+test_double_opening_impossible = scenario do
+  (serviceProvider, owner) <- testBase
+  proposalCid2 <- submit owner do
+    create CashAccountOpenProposal with
+      serviceProvider
+      owner
+  submitMustFail serviceProvider do
+    exercise proposalCid2 OpenCashAccount
+
+test_owner_cannot_just_add_cash = scenario do
+  (serviceProvider, owner) <- testBase
+  submitMustFail owner do
+    exerciseByKey @CashAccount (serviceProvider, owner) Deposit with
+      amount = 10
+
+test_adding_cash = scenario do
+  (serviceProvider, owner) <- testBase
+  submit owner do
+    create PendingDeposit with
+      serviceProvider
+      owner
+      amount = 100
+      ref = "ABCD"
+  submit serviceProvider do
+    exerciseByKey @PendingDeposit (owner, "ABCD") CashArrived
+  (_, acc) <- submit owner do
+    fetchByKey @CashAccount (serviceProvider, owner)
+  assert (acc.balance == 100)
+  
+test_adding_cash_twice_fails = scenario do
+  (serviceProvider, owner) <- testBase
+  submit owner do
+    create PendingDeposit with
+      serviceProvider
+      owner
+      amount = 100
+      ref = "ABCD"
+  submit serviceProvider do
+    exerciseByKey @PendingDeposit (owner, "ABCD") CashArrived
+  submitMustFail serviceProvider do
+    exerciseByKey @PendingDeposit (owner, "ABCD") CashArrived
+
+-- test fixtures
+testBase = scenario do
+  serviceProvider <- getParty "serviceProvider"
+  owner <- getParty "owner"
+  proposalCid <- submit owner do
+    create CashAccountOpenProposal with
+      serviceProvider
+      owner
+  submit serviceProvider do
+    exercise proposalCid OpenCashAccount
+  return (serviceProvider, owner)

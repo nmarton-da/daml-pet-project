@@ -1,0 +1,22 @@
+sdk-version: 1.5.0
+name: realestate-facilitator
+source: daml
+init-script: Main:setup
+parties:
+  - CustomerAlice
+  - BuilderBob
+  - MrTrust
+version: 0.0.1
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
+  - daml-trigger
+sandbox-options:
+  - --wall-clock-time
+  - --ledgerid=realestate-facilitator-sandbox
+codegen:
+  scala:
+    package-prefix: com.daml.realfac.model
+    output-directory: scala-codegen/src/main/scala
+    verbosity: 2

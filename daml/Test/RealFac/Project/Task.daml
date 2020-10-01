@@ -1,0 +1,62 @@
+module Test.RealFac.Project.Task where
+
+import RealFac.Project.Task
+import DA.List
+
+test_processPhase_happy_path = scenario do
+  let
+    (out, p, allDone) = processTask "1" InProgress testPhases
+  assert (out == [
+      Task (TaskDescriptor "1" "1desc" [] 10) InProgress,
+      testPhases !! 1,
+      testPhases !! 2])
+  assert (p == Task (TaskDescriptor "1" "1desc" [] 10) InProgress)
+  assert (not allDone)
+
+test_processPhase_invalid_start = scenario do
+  assertMustFail \() -> 
+    processTask "2" InProgress testPhases
+
+test_processPhase_invalid_id = scenario do
+  assertMustFail \() -> 
+    processTask "11" InProgress testPhases
+
+test_processPhase_invalid_nextState = scenario do
+  assertMustFail \() -> 
+    processTask "1" Done testPhases
+
+test_processPhase_full_happy_path = scenario do
+  let
+    (out, p, allDone) = testPhases
+      >>> processTask "1" InProgress >>> first
+      >>> processTask "1" PendingDone >>> first
+      >>> processTask "1" Done >>> first
+      >>> processTask "2" InProgress >>> first
+      >>> processTask "2" PendingDone >>> first
+      >>> processTask "2" InProgress >>> first
+      >>> processTask "2" PendingDone >>> first
+      >>> processTask "2" Done >>> first
+      >>> processTask "3" InProgress >>> first
+      >>> processTask "3" PendingDone >>> first
+      >>> processTask "3" Done      
+  assert (out == [
+      Task (TaskDescriptor "1" "1desc" [] 10) Done,
+      Task (TaskDescriptor "2" "2desc" ["1"] 10) Done,
+      Task (TaskDescriptor "3" "3desc" ["1", "2"] 10) Done])
+  assert (p == Task (TaskDescriptor "3" "3desc" ["1", "2"] 10) Done)
+  assert allDone
+
+testPhases = [
+  Task (TaskDescriptor "1" "1desc" [] 10) Pending,
+  Task (TaskDescriptor "2" "2desc" ["1"] 10)Pending,
+  Task (TaskDescriptor "3" "3desc" ["1", "2"] 10) Pending]
+
+first (a, _, _) = a
+
+assertMustFail f = scenario do
+  p <- getParty "p"
+  submitMustFail p do
+    let
+      _ = f ()
+    assert True
+

@@ -1,0 +1,149 @@
+module Test.RealFac.Project.Project where
+
+import RealFac.CashAccount.CashAccount
+import RealFac.Project.Project
+import RealFac.Project.ProjectParties
+import RealFac.Project.Task
+
+test_full_scenario = scenario do
+  serviceProvider <- getParty "serviceProvider"
+  client <- getPartyWithCashAccount serviceProvider "client"
+  vendor <- getPartyWithCashAccount serviceProvider "vendor"
+  
+  -- add money for client
+  submit client do
+    create PendingDeposit with
+      serviceProvider
+      owner = client
+      amount = 1000
+      ref = "ABCD"
+  submit serviceProvider do
+    exerciseByKey @PendingDeposit (client, "ABCD") CashArrived
+  
+  -- vendor creates a PendingProject
+  submit vendor do
+    create PendingProject with
+      projectParties = ProjectParties with 
+        serviceProvider 
+        client 
+        vendor
+      ref = "111-house"
+      taskDescriptors = []
+      alreadySigned = [vendor]
+
+  -- vendor adds the tasks
+  submit vendor do
+    exerciseByKey @PendingProject (vendor, "111-house") AddTask with
+      task = TaskDescriptor "foundation" "" [] 100
+    exerciseByKey @PendingProject (vendor, "111-house") AddTask with
+      task = TaskDescriptor "structure" "" ["foundation"] 100
+    exerciseByKey @PendingProject (vendor, "111-house") AddTask with
+      task = TaskDescriptor "interior" "" ["structure"] 0
+    exerciseByKey @PendingProject (vendor, "111-house") AddTask with
+      task = TaskDescriptor "exterior" "" ["structure"] 0
+    exerciseByKey @PendingProject (vendor, "111-house") AddTask with
+      task = TaskDescriptor "key" "" ["interior", "exterior"] 600
+
+  -- all parties sign
+  submit client do
+    exerciseByKey @PendingProject (vendor, "111-house") Sign with signer = client
+  submit serviceProvider do
+    exerciseByKey @PendingProject (vendor, "111-house") Sign with signer = serviceProvider
+
+  -- create contract
+  submit client do
+    exerciseByKey @PendingProject (vendor, "111-house") Finalize
+
+  -- building
+  submit vendor do
+    exerciseByKey @Project (serviceProvider, "111-house") (Start "foundation")
+  submit vendor do
+    exerciseByKey @Project (serviceProvider, "111-house") (Complete "foundation")
+  submit client do
+    exerciseByKey @Project (serviceProvider, "111-house") (Ack "foundation")
+  submit vendor do
+    exerciseByKey @Project (serviceProvider, "111-house") (Start "structure")
+  submit vendor do
+    exerciseByKey @Project (serviceProvider, "111-house") (Complete "structure")
+  contractId <- submit client do
+    exerciseByKey @Project (serviceProvider, "111-house") (Ack "structure")
+
+  -- settle
+  submit serviceProvider do
+    exerciseByKey @Project (serviceProvider, "111-house") Settle
+
+  submit client do
+    (_, ca) <- fetchByKey @CashAccount (serviceProvider, client)
+    assert (ca.balance == 800)
+    assert (ca.reserved == 600)
+  submit vendor do
+    (_, ca) <- fetchByKey @CashAccount (serviceProvider, vendor)
+    assert (ca.balance == 200)
+    assert (ca.reserved == 0)
+    
+  -- mid project vendor withdraws some money
+  submit vendor do
+    exerciseByKey @CashAccount (serviceProvider, vendor) Withdraw with amount = 100 
+
+  -- continue building
+  submit vendor do
+    exerciseByKey @Project (serviceProvider, "111-house") (Start "interior")
+  submit vendor do
+    exerciseByKey @Project (serviceProvider, "111-house") (Start "exterior")
+  submit vendor do
+    exerciseByKey @Project (serviceProvider, "111-house") (Complete "interior")
+  submit client do
+    exerciseByKey @Project (serviceProvider, "111-house") (Ack "interior")
+  submit vendor do
+    exerciseByKey @Project (serviceProvider, "111-house") (Complete "exterior")
+  submit client do
+    exerciseByKey @Project (serviceProvider, "111-house") (Ack "exterior")
+
+  -- final shipping
+  submit vendor do
+    exerciseByKey @Project (serviceProvider, "111-house") (Start "key")  
+  submit vendor do
+    exerciseByKey @Project (serviceProvider, "111-house") (Complete "key")  
+  submit client do
+    exerciseByKey @Project (serviceProvider, "111-house") (Reject "key")  
+  submit vendor do
+    exerciseByKey @Project (serviceProvider, "111-house") (Complete "key")  
+  submit client do
+    exerciseByKey @Project (serviceProvider, "111-house") (Reject "key")  
+  submit vendor do
+    exerciseByKey @Project (serviceProvider, "111-house") (Complete "key")  
+  submit client do
+    exerciseByKey @Project (serviceProvider, "111-house") (Ack "key")  
+
+  -- settle
+  submit serviceProvider do
+    exerciseByKey @Project (serviceProvider, "111-house") Settle
+  submit serviceProvider do
+    exerciseByKey @Project (serviceProvider, "111-house") Settle
+  submit serviceProvider do
+    exerciseByKey @Project (serviceProvider, "111-house") Settle
+
+  submit client do
+    (_, ca) <- fetchByKey @CashAccount (serviceProvider, client)
+    assert (ca.balance == 200)
+    assert (ca.reserved == 0)
+  submit vendor do
+    (_, ca) <- fetchByKey @CashAccount (serviceProvider, vendor)
+    assert (ca.balance == 700)
+    assert (ca.reserved == 0)
+
+  submit vendor do
+    (_, c) <- fetchByKey @Project (serviceProvider, "111-house")
+    assert c.done
+
+  return ()
+
+getPartyWithCashAccount serviceProvider name = scenario do
+  party <- getParty name
+  proposalCid <- submit party do
+    create CashAccountOpenProposal with
+      serviceProvider
+      owner = party
+  submit serviceProvider do
+    exercise proposalCid OpenCashAccount
+  return party  

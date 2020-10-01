@@ -1,0 +1,10 @@
+module RealFac.Project.ProjectParties where
+
+data ProjectParties = ProjectParties with
+  serviceProvider : Party
+  client : Party
+  vendor : Party
+    deriving (Eq, Show)
+
+parties : ProjectParties -> [Party]
+parties cp = [cp.serviceProvider, cp.client, cp.vendor] 

@@ -1,1 +1,11 @@
 /.daml
+/.idea
+/scala-codegen
+/project/target
+/project/project/target
+/target
+/application/target
+/daml.js
+/node_modules/
+/ui/node_modules/
+/ui/yarn.lock

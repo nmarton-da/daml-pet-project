@@ -1,0 +1,22 @@
+module RealFac.Triggers.Settler where
+
+import Daml.Trigger
+import DA.Next.Map
+import RealFac.Project.Project
+import RealFac.Project.Task
+
+settlerTrigger : Trigger ()
+settlerTrigger = Trigger with
+  initialize = const ()
+  updateState = \_acs _message () -> ()
+  rule = settleRule
+  registeredTemplates = RegisteredTemplates [registeredTemplate @Project]
+  heartbeat = None
+
+settleRule : Party -> ACS -> Time -> Map CommandId [Command] -> () -> TriggerA ()
+settleRule party acs _time commandsInFlight () = do
+  getContracts @Project acs
+    >>> map (\(id, _) -> (exerciseCmd id Settle, toAnyContractId id))
+    >>> unzip
+    >>> uncurry emitCommands
+  return ()

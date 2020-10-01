@@ -1,0 +1,107 @@
+module RealFac.Project.Task where
+
+import DA.Optional
+import DA.List as List
+import DA.Tuple
+import DA.Next.Map as Map
+
+data TaskDescriptor = TaskDescriptor with
+  id : Text
+  description : Text
+  dependsOn : [Text]
+  cashOnComplete : Int
+    deriving (Eq, Show)
+
+data Task = Task with
+  descriptor : TaskDescriptor
+  state : TaskState
+   deriving (Eq, Show)
+
+data TaskState
+  = Pending
+  | InProgress
+  | PendingDone
+  | Done
+    deriving (Eq, Show)
+
+processTask : Text -> TaskState -> [Task]-> ([Task], Task, Bool)
+processTask taskId nextState tasks =
+  let
+    taskMap = tasks
+      >>> map (\p -> (p.descriptor.id, p))
+      >>> fromList
+    task = taskMap
+      >>> Map.lookup taskId
+      >>> fromSomeNote ("Invalid taskId " <> taskId)
+    stateTransition@(from, to) = (task.state, nextState)
+    _ = stateTransition
+      >>> validStateTransition
+      >>> validate ("Invalid state transition " <> show from <> " -> " <> show to)
+    _ = task
+      >>> validStartOfTask taskMap
+      >>> validate ("Cannot start task " <> show taskId)
+    newTask = task with state = nextState
+    newTasks = tasks
+      >>> map \p -> 
+        if p == task
+        then newTask
+        else p
+    allDone = newTasks
+      >>> all \p -> p.state == Done
+  in (newTasks, newTask, allDone)
+   
+validStateTransition : (TaskState, TaskState) -> Bool
+validStateTransition (Pending, InProgress) = True
+validStateTransition (InProgress, PendingDone) = True
+validStateTransition (PendingDone, InProgress) = True
+validStateTransition (PendingDone, Done) = True
+validStateTransition _ = False
+
+validStartOfTask : Map.Map Text Task -> Task -> Bool
+validStartOfTask taskMap task =
+  task.state /= Pending || 
+  all (taskDoneIn taskMap) task.descriptor.dependsOn
+
+taskDoneIn : Map.Map Text Task -> Text -> Bool
+taskDoneIn taskMap id =
+  case Map.lookup id taskMap of
+    Some(task) -> task.state == Done
+    None -> False
+
+valid : [TaskDescriptor] -> Bool
+valid taskDescriptors =
+  let
+    taskDescriptorMap = taskDescriptors
+      >>> map (id)
+      >>> zip taskDescriptors
+      >>> map swap
+      >>> fromList
+    _ = taskDescriptors
+      >>> map (id)
+      >>> unique
+      >>> validate "All task ID-s must be unique"
+    _ = taskDescriptors 
+      >>> concatMap (dependsOn)
+      >>> all (`member` taskDescriptorMap)
+      >>> validate "All dependencies must exist"
+    _ = taskDescriptors
+      >>> map (\p -> (p.id, p.dependsOn))
+      >>> acyclic
+      >>> validate "Dependency graph is invalid"
+  in True
+
+acyclic : [(Text, [Text])] -> Bool
+acyclic graph = 
+  List.null graph ||
+    case find (\(_, deps) -> List.null deps) graph of
+      None -> False
+      Some (id, _) -> graph
+        >>> List.filter (\(x, _) -> x /= id) 
+        >>> map (\(x, y) -> (x, List.filter (/= id) y))
+        >>> acyclic
+
+(>>>) = flip ($)
+
+validate : Text -> Bool -> ()
+validate _ True = ()
+validate text False = error text
