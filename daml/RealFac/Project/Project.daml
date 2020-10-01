@@ -1,0 +1,158 @@
+module RealFac.Project.Project where
+
+import DA.Action
+import DA.List
+import RealFac.CashAccount.CashAccount
+import RealFac.Project.ProjectParties
+import RealFac.Project.Task
+
+template Project
+  with
+    projectParties : ProjectParties
+    ref : Text
+    tasks : [Task]
+    -- derived tacking data
+    done : Bool
+    toSettle : Int
+  where
+    signatory parties projectParties
+    observer parties projectParties
+    key (projectParties.serviceProvider, ref) : (Party, Text)
+    maintainer key._1
+
+    let
+      ProjectParties serviceProvider client vendor = projectParties
+
+    controller client can
+
+      Ack
+        : ContractId Project
+        with
+          taskId : Text
+        do
+          let
+            (newTasks, task, allDone) = processTask taskId Done tasks
+          create this with
+            tasks = newTasks
+            done = allDone
+            toSettle = toSettle + task.descriptor.cashOnComplete
+
+      Reject
+        : ContractId Project
+        with
+          taskId : Text
+        do
+          let
+            (newTasks, task, allDone) = processTask taskId InProgress tasks
+          create this with
+            tasks = newTasks
+
+    controller vendor can
+
+      Start
+        : ContractId Project
+        with
+          taskId : Text
+        do
+          let
+            (newTasks, task, allDone) = processTask taskId InProgress tasks
+          create this with
+            tasks = newTasks
+
+      Complete
+        : ContractId Project
+        with
+          taskId : Text
+        do
+          let
+            (newTasks, task, allDone) = processTask taskId PendingDone tasks
+          create this with
+            tasks = newTasks
+
+    controller serviceProvider can
+
+      nonconsuming Settle
+        : ()
+        do
+          when (toSettle > 0) do
+            exerciseByKey @CashAccount (serviceProvider, client) 
+              WithdrawReserved with amount = toSettle
+            exerciseByKey @CashAccount (serviceProvider, vendor) 
+              Deposit with amount = toSettle
+            archive self
+            create this with
+              toSettle = 0
+            return ()            
+            
+      ArchiveIt
+        : ()
+        do
+          assertMsg "Project is not done yet" done
+          assertMsg "Project cash transactions not settled yet" (toSettle == 0)
+          return () 
+      
+      Break
+        : ()
+        do
+          assertMsg "Project is done - cannot be broken" (not done)
+          -- TODO
+          return ()
+
+template PendingProject
+  with
+    projectParties : ProjectParties
+    ref : Text
+    taskDescriptors : [TaskDescriptor]
+    alreadySigned : [Party]
+  where
+    signatory projectParties.vendor :: alreadySigned
+    observer parties projectParties
+    ensure 
+      ref /= "" && 
+      projectParties >>> parties >>> unique &&
+      unique alreadySigned &&
+      valid taskDescriptors
+    key (projectParties.vendor, ref) : (Party, Text)
+    maintainer key._1
+
+
+    choice AddTask : ContractId PendingProject with
+        task : TaskDescriptor
+      controller projectParties.vendor
+        do
+          create this with taskDescriptors = taskDescriptors ++ [task]
+
+    choice RemoveLastTask : ContractId PendingProject with
+      controller projectParties.vendor
+        do
+          assertMsg "Task list is empty" (not (null taskDescriptors))
+          create this with taskDescriptors = init taskDescriptors
+
+    choice Sign : ContractId PendingProject with
+        signer : Party
+      controller signer
+        do
+          create this with alreadySigned = signer :: alreadySigned
+    
+    choice Finalize : ContractId Project with
+      controller projectParties.client
+        do
+          assertMsg "Missing signatures" (length alreadySigned == 3)
+          assertMsg "Project has no tasks" (not (null taskDescriptors))
+          let
+            ProjectParties serviceProvider client vendor = projectParties
+            totalAmount = taskDescriptors
+              >>> map (cashOnComplete)
+              >>> sum
+            tasks = taskDescriptors
+              >>> map (`Task` Pending)
+          exerciseByKey @CashAccount (serviceProvider, client) Reserve with 
+            amount = totalAmount
+          create Project with
+            projectParties
+            ref
+            tasks
+            done = False
+            toSettle = 0
+
+
