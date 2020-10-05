@@ -47,4 +47,4 @@ Main DAML script spawns three parties by default: MrTrust (service provider), Cu
 - DAML: `daml start`
 - DAML Trigger (needs to run as the service provider party, see last parameter): `daml trigger --dar .daml/dist/realestate-facilitator-0.0.1.dar --trigger-name RealFac.Triggers.Settler:settlerTrigger --ledger-host localhost --ledger-port 6865 --ledger-party MrTrust`
 - Web-app: from the ui directory `yarn start`, and then from browser: `http://localhost:3000`
-- CLI (last parameter is the name of the Party which onbehalf the CLI connect to the ledger): `sbt "application/runMain com.daml.realfac.CliApp localhost 6865 BuilderBob"`
+- CLI (last parameter is the name of the Party which onbehalf the CLI connect to the ledger): `./sbt "application/runMain com.daml.realfac.CliApp localhost 6865 BuilderBob"`
